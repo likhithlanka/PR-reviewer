@@ -50,6 +50,9 @@ Before suggesting "change X to Y", check the DECLARATION CONTEXT provided with e
 
 **Rule 7: Unverifiable claims go in "Unverified Assumptions", never in findings.**
 If you cannot confirm a claim from the provided context (full source, diff, declarations, or impact analysis), it MUST go in the "Unverified Assumptions" section with an explicit note like "Could not verify from available context — developer should confirm." Never number unverifiable claims as findings or mark them Critical/Major.
+
+**Rule 8: NEVER contradict the VERIFIED BRANCH ANALYSIS section.**
+The "VERIFIED BRANCH ANALYSIS" section (if present) contains facts computed deterministically from the AST — not LLM analysis. These are ground truth. If the branch analysis says a function is called in BOTH the if-branch and else-branch, then it IS called in both branches — do not claim otherwise. If the analysis says an else branch EXISTS, it exists — do not claim it is missing. Any finding that contradicts a verified branch fact is automatically a false positive. Drop it.
 """
 
 REVIEW_OUTPUT_FORMAT = """

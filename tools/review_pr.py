@@ -127,6 +127,15 @@ class ReviewPRTool:
         from pipeline.diff_parser import changed_functions as compute_changed_functions
         changed_fns = compute_changed_functions(diff, graph)
 
+        # 5.6. Deterministic branch analysis
+        logger.info("Step 5.6: Branch Completeness Analysis")
+        from pipeline.branch_analyzer import (
+            analyze_branches,
+            format_branch_analysis_section,
+        )
+        branch_findings = analyze_branches(diff, changed_files, repo_path)
+        branch_section = format_branch_analysis_section(branch_findings)
+
         # 6. Impact Analysis (AST) — scoped to actually-changed functions
         logger.info("Step 6: Impact Analysis")
         from pipeline.impact_analyzer import ImpactAnalyzer
@@ -190,6 +199,7 @@ class ReviewPRTool:
             review_history_summary=hist_summary,
             spec_quotes=spec_quotes,
             changed_function_sources=fn_sources_section,
+            branch_analysis=branch_section,
         )
 
         session.set_pr_context(platform, workspace, repo_slug, str(pr_id), {
@@ -212,6 +222,7 @@ class ReviewPRTool:
                 changed_functions=changed_fns,
                 signature_changes=signature_changes,
                 fn_sources=fn_sources,
+                branch_findings=branch_findings,
                 languages=languages,
                 impact_findings=impact_findings,
                 cochange_findings=cochange_findings,
@@ -247,6 +258,7 @@ class ReviewPRTool:
         changed_functions: list[str],
         signature_changes: dict[str, str],
         fn_sources: list[dict],
+        branch_findings: list[dict],
         languages: dict[str, float],
         impact_findings: dict,
         cochange_findings: list[dict],
@@ -339,6 +351,7 @@ class ReviewPRTool:
             "changed_functions": changed_functions,
             "signature_changes": sig_summary,
             "changed_function_sources": fn_source_payload,
+            "verified_branch_analysis": branch_findings,
             "languages": languages,
             "impact_summary": impact_summary,
             "cochange_summary": cochange_summary,
@@ -392,7 +405,11 @@ class ReviewPRTool:
                     "or config value, check the `declaration_context` in `changed_function_sources` or use "
                     "`read_file`. If your fix contradicts the declaration's own label/docs, reconsider.\n"
                     "7. Unverifiable → 'Unverified Assumptions': If you cannot confirm a claim from the "
-                    "available context, it MUST go in 'Unverified Assumptions', not in numbered findings."
+                    "available context, it MUST go in 'Unverified Assumptions', not in numbered findings.\n"
+                    "8. NEVER contradict `verified_branch_analysis`: The branch analysis data was computed "
+                    "deterministically from the AST. It is ground truth. If it says a function is called in "
+                    "both branches, it IS. If it says an else branch exists, it DOES. Any finding that "
+                    "contradicts verified branch analysis is automatically a false positive — drop it."
                 ),
             },
         }

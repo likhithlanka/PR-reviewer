@@ -26,6 +26,7 @@ class ContextAssembler:
         review_history_summary: str,
         spec_quotes: list[dict],
         changed_function_sources: str = "",
+        branch_analysis: str = "",
     ) -> str:
         """
         Build the context document.
@@ -50,6 +51,13 @@ class ContextAssembler:
         # claims against actual code, not just the few lines of diff context.
         if changed_function_sources:
             parts.append(changed_function_sources)
+            parts.append("")
+
+        # 2.6. Verified Branch Analysis
+        # Deterministic AST-proven facts about conditional structures.
+        # The reviewer MUST NOT contradict these.
+        if branch_analysis:
+            parts.append(branch_analysis)
             parts.append("")
 
         # 3. Impact Analysis
