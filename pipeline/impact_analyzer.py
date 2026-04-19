@@ -98,12 +98,29 @@ class ImpactAnalyzer:
                             f"`{node_id}` was changed{sig_detail} but its caller "
                             f"`{caller_id}` (in {caller_file}) was not updated."
                         )
+                    # Tag with verification status so the reviewer knows
+                    # whether this was confirmed from code or inferred from graph
+                    if sig_status == "unknown":
+                        verification = "unverified"
+                        verification_note = (
+                            "Signature comparison unavailable (no cached graph or non-Python file). "
+                            "Use `read_file` with include_ast_context=True to verify before reporting."
+                        )
+                    elif sig_status == "changed":
+                        verification = "verified"
+                        verification_note = "Confirmed: function signature differs from previous version."
+                    else:
+                        verification = "verified"
+                        verification_note = "Confirmed: signature unchanged, body-only edit."
+
                     results["caller_impact"].append({
                         "changed_entity": node_id,
                         "caller": caller_id,
                         "caller_file": caller_file,
                         "severity": severity,
                         "message": message,
+                        "verification": verification,
+                        "verification_note": verification_note,
                     })
 
         # ── Callee analysis ────────────────────────────────────────────────

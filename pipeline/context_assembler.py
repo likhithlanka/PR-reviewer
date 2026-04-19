@@ -25,6 +25,7 @@ class ContextAssembler:
         static_analysis: dict[str, list[dict]],
         review_history_summary: str,
         spec_quotes: list[dict],
+        changed_function_sources: str = "",
     ) -> str:
         """
         Build the context document.
@@ -44,6 +45,13 @@ class ContextAssembler:
         parts.append(diff)
         parts.append("")
 
+        # 2.5. Full Source of Changed Functions
+        # This gives the reviewer complete function bodies so it can verify
+        # claims against actual code, not just the few lines of diff context.
+        if changed_function_sources:
+            parts.append(changed_function_sources)
+            parts.append("")
+
         # 3. Impact Analysis
         parts.append("=== IMPACT ANALYSIS (AST Call Graph) ===")
         unupdated = impact_analysis.get("caller_impact", [])
@@ -55,11 +63,17 @@ class ContextAssembler:
             parts.append("No structural impact flags.\n")
         else:
             for item in unupdated:
-                parts.append(f"[MAJOR] Unupdated caller: {item['message']}")
+                severity = item.get("severity", "MAJOR").upper()
+                verification = item.get("verification", "unverified").upper()
+                parts.append(f"[{severity}] [{verification}] Unupdated caller: {item['message']}")
+                if item.get("verification_note"):
+                    parts.append(f"  ↳ {item['verification_note']}")
             for item in network:
-                parts.append(f"[MAJOR] Cross-network: {item['message']}")
+                parts.append(f"[MAJOR] [VERIFIED] Cross-network: {item['message']}")
             for item in callees:
                 parts.append(f"[MINOR] Callee changed: {item['message']}")
+            for item in import_iss:
+                parts.append(f"[{item.get('severity', 'MAJOR').upper()}] Import issue: {item['message']}")
             parts.append("")
 
         # 4. Co-change Analysis

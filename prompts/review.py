@@ -41,6 +41,15 @@ Structure every finding as: Observation → Evidence → Conclusion. An observat
 
 **Rule 4: Verify control flow before claiming logic bugs.**
 When claiming a code path always/never executes, verify by tracing indentation and conditional structure. Pay special attention to early returns, fall-through after if blocks, and exception handling. A claimed "this always resets the alert" must be backed by proving the reset line is outside the conditional, not just assumed from reading order.
+
+**Rule 5: Use FULL SOURCE, not diff context, for behavioral claims.**
+The diff shows only a few lines of context around changes. When claiming "this function doesn't have an else branch" or "this value is set unconditionally", you MUST verify against the FULL SOURCE OF CHANGED FUNCTIONS section (provided below the diff). If the full source is not available, use `read_file` to read it. Never make behavioral claims based solely on diff context lines — they are incomplete by definition.
+
+**Rule 6: Verify fixes against declarations before suggesting them.**
+Before suggesting "change X to Y", check the DECLARATION CONTEXT provided with each function source. If a constant, gauge, config value, or type definition documents the current behavior (e.g., a gauge label says "1=multiple, -1=valid"), your fix must be consistent with that contract. If your fix contradicts the declaration, either (a) propose changing the declaration too and explain why, or (b) reconsider whether it's actually a bug.
+
+**Rule 7: Unverifiable claims go in "Unverified Assumptions", never in findings.**
+If you cannot confirm a claim from the provided context (full source, diff, declarations, or impact analysis), it MUST go in the "Unverified Assumptions" section with an explicit note like "Could not verify from available context — developer should confirm." Never number unverifiable claims as findings or mark them Critical/Major.
 """
 
 REVIEW_OUTPUT_FORMAT = """

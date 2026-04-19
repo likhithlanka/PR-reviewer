@@ -166,6 +166,17 @@ class ReviewPRTool:
             if filtered_comments:
                 hist_summary = await hist_tool._summarize(filtered_comments, "Changed files in PR")
 
+        # 9.5. Extract full source of changed functions + declaration context
+        logger.info("Step 9.5: Extract Changed Function Sources")
+        from pipeline.source_extractor import (
+            extract_changed_function_sources,
+            format_function_sources_section,
+        )
+        fn_sources = extract_changed_function_sources(
+            graph, changed_fns, repo_path,
+        )
+        fn_sources_section = format_function_sources_section(fn_sources)
+
         # 10. Assemble Context
         logger.info("Step 10: Assemble Context")
         from pipeline.context_assembler import ContextAssembler
@@ -178,6 +189,7 @@ class ReviewPRTool:
             static_analysis=static_findings,
             review_history_summary=hist_summary,
             spec_quotes=spec_quotes,
+            changed_function_sources=fn_sources_section,
         )
 
         session.set_pr_context(platform, workspace, repo_slug, str(pr_id), {
@@ -199,6 +211,7 @@ class ReviewPRTool:
                 changed_files=changed_files,
                 changed_functions=changed_fns,
                 signature_changes=signature_changes,
+                fn_sources=fn_sources,
                 languages=languages,
                 impact_findings=impact_findings,
                 cochange_findings=cochange_findings,
@@ -233,6 +246,7 @@ class ReviewPRTool:
         changed_files: list[str],
         changed_functions: list[str],
         signature_changes: dict[str, str],
+        fn_sources: list[dict],
         languages: dict[str, float],
         impact_findings: dict,
         cochange_findings: list[dict],
@@ -306,12 +320,25 @@ class ReviewPRTool:
             short_name = nid.split("::")[-1] if "::" in nid else nid
             sig_summary[short_name] = status
 
+        # Full function sources for the agent (truncated for payload size)
+        fn_source_payload = [
+            {
+                "name": s["name"],
+                "file": s["file_path"],
+                "lines": f"{s['line_start']}-{s['line_end']}",
+                "source": s["source"][:2000],
+                "declaration_context": s.get("declaration_context", []),
+            }
+            for s in fn_sources[:15]  # Cap to avoid massive payloads
+        ]
+
         payload = {
             "status": "pipeline_complete",
             "pr_metadata": pr_data,
             "changed_files": changed_files,
             "changed_functions": changed_functions,
             "signature_changes": sig_summary,
+            "changed_function_sources": fn_source_payload,
             "languages": languages,
             "impact_summary": impact_summary,
             "cochange_summary": cochange_summary,
@@ -356,7 +383,16 @@ class ReviewPRTool:
                     "3. Verify control flow: Before claiming a line always/never executes, trace indentation "
                     "and conditional structure. Use `read_file` to see the actual code, not just the diff context.\n"
                     "4. Observations ≠ findings: 'These two methods differ in decorator usage' is an observation. "
-                    "It becomes a finding only after tracing proves the difference is unintentional."
+                    "It becomes a finding only after tracing proves the difference is unintentional.\n"
+                    "5. Full source over diff context: The diff shows only a few surrounding lines. For any "
+                    "behavioral claim ('no else branch', 'called unconditionally'), verify against the full "
+                    "function source provided in `changed_function_sources`, or call `read_file`. Never make "
+                    "behavioral claims from diff context alone — it is incomplete by definition.\n"
+                    "6. Check declarations before suggesting fixes: If the code references a gauge, constant, "
+                    "or config value, check the `declaration_context` in `changed_function_sources` or use "
+                    "`read_file`. If your fix contradicts the declaration's own label/docs, reconsider.\n"
+                    "7. Unverifiable → 'Unverified Assumptions': If you cannot confirm a claim from the "
+                    "available context, it MUST go in 'Unverified Assumptions', not in numbered findings."
                 ),
             },
         }
