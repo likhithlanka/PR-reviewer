@@ -16,6 +16,8 @@ from typing import Any, Optional
 
 import networkx as nx
 
+from pipeline.utils import file_in_changeset
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,9 +29,20 @@ class ImpactAnalyzer:
         graph: nx.DiGraph,
         changed_files: list[str],
         repo_path: Path,
+        changed_function_nodes: Optional[list[str]] = None,
+        signature_changes: Optional[dict[str, str]] = None,
     ) -> dict[str, Any]:
         """
         Run full impact analysis on the changed files.
+
+        Args:
+            changed_function_nodes: If provided, only these specific function/class
+                node IDs are analyzed for caller/callee impact (diff-level precision).
+                Falls back to all functions in changed files if not provided.
+            signature_changes: If provided, maps node_id → "changed" or "unchanged".
+                Callers of signature-unchanged functions get "Info" severity instead
+                of "Major", preventing false-positive breakage warnings.
+
         Returns a structured dict with all findings.
         """
         results: dict[str, Any] = {
@@ -41,15 +54,19 @@ class ImpactAnalyzer:
 
         changed_file_set = set(changed_files)
 
-        # Collect all changed function/class node IDs
-        changed_nodes = [
-            n for n, d in graph.nodes(data=True)
-            if d.get("file_path") and any(
-                d["file_path"].endswith(cf) or cf in d["file_path"]
-                for cf in changed_files
-            )
-            and d.get("kind") in ("function", "class")
-        ]
+        # Use diff-level precision when available, else fall back to file-level
+        if changed_function_nodes is not None:
+            changed_nodes = [
+                n for n in changed_function_nodes
+                if graph.has_node(n) and graph.nodes[n].get("kind") in ("function", "class")
+            ]
+        else:
+            changed_nodes = [
+                n for n, d in graph.nodes(data=True)
+                if d.get("file_path")
+                and file_in_changeset(d["file_path"], changed_files)
+                and d.get("kind") in ("function", "class")
+            ]
 
         # ── Caller analysis ────────────────────────────────────────────────
         for node_id in changed_nodes:
@@ -60,20 +77,33 @@ class ImpactAnalyzer:
             for caller_id in callers:
                 caller_data = graph.nodes.get(caller_id, {})
                 caller_file = caller_data.get("file_path", "")
-                in_pr = any(
-                    caller_file.endswith(cf) or cf in caller_file
-                    for cf in changed_files
-                )
+                in_pr = file_in_changeset(caller_file, changed_files)
                 if not in_pr and caller_file:
+                    # Determine severity based on whether the function's
+                    # signature (parameters/return type) actually changed.
+                    # Internal-only changes (body refactors, bug fixes) don't
+                    # break callers, so we downgrade to Info to avoid noise.
+                    sig_status = (signature_changes or {}).get(node_id, "unknown")
+                    if sig_status == "unchanged":
+                        severity = "Info"
+                        message = (
+                            f"`{node_id}` was changed (body only, signature unchanged). "
+                            f"Caller `{caller_id}` (in {caller_file}) is likely unaffected, "
+                            f"but verify if the behavioral change matters."
+                        )
+                    else:
+                        severity = "Major"
+                        sig_detail = " (signature changed)" if sig_status == "changed" else ""
+                        message = (
+                            f"`{node_id}` was changed{sig_detail} but its caller "
+                            f"`{caller_id}` (in {caller_file}) was not updated."
+                        )
                     results["caller_impact"].append({
                         "changed_entity": node_id,
                         "caller": caller_id,
                         "caller_file": caller_file,
-                        "severity": "Major",
-                        "message": (
-                            f"`{node_id}` was changed but its caller "
-                            f"`{caller_id}` (in {caller_file}) was not updated."
-                        ),
+                        "severity": severity,
+                        "message": message,
                     })
 
         # ── Callee analysis ────────────────────────────────────────────────
@@ -85,10 +115,7 @@ class ImpactAnalyzer:
             for callee_id in callees:
                 callee_data = graph.nodes.get(callee_id, {})
                 callee_file = callee_data.get("file_path", "")
-                also_changed = any(
-                    callee_file.endswith(cf) or cf in callee_file
-                    for cf in changed_files
-                )
+                also_changed = file_in_changeset(callee_file, changed_files)
                 if also_changed:
                     results["callee_impact"].append({
                         "changed_entity": node_id,
@@ -185,7 +212,7 @@ class ImpactAnalyzer:
             if data.get("kind") != "module":
                 continue
             node_file = data.get("file_path", "")
-            if not any(node_file.endswith(cf) or cf in node_file for cf in changed_files):
+            if not file_in_changeset(node_file, changed_files):
                 continue
             for _, imported_mod, edge_data in graph.out_edges(node_id, data=True):
                 if edge_data.get("rel") != "imports":
@@ -235,7 +262,7 @@ class ImpactAnalyzer:
 
         callers = [
             {"id": u, "file": graph.nodes.get(u, {}).get("file_path", ""),
-             "in_pr": any(graph.nodes.get(u, {}).get("file_path", "").endswith(cf) for cf in pr_changed_files)}
+             "in_pr": file_in_changeset(graph.nodes.get(u, {}).get("file_path", ""), pr_changed_files)}
             for u, _, d in graph.in_edges(node_id, data=True) if d.get("rel") == "called_by"
         ]
         callees = [

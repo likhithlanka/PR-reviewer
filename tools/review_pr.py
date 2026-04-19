@@ -15,6 +15,7 @@ from mcp.types import Tool
 
 import config
 from pipeline.cache import session
+from pipeline.utils import file_in_changeset
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +91,19 @@ class ReviewPRTool:
         changed_files = rm.get_changed_files(repo_path, target_branch, source_branch)
         session.set(f"pr_changed:{platform}:{workspace}:{repo_slug}", changed_files)
 
-        # 3. Parse AST + Build Graph
+        # 3. Parse AST + Build Graph (with signature snapshot for change detection)
         logger.info("Step 3: AST Code Graph")
         from pipeline.ast_parser import ASTParser
         parser = ASTParser()
-        graph = parser.build_graph(repo_path, repo_slug, changed_files)
+        graph, old_sigs = parser.build_graph(repo_path, repo_slug, changed_files, snapshot_old_sigs=True)
         session.set(f"graph:{platform}:{workspace}:{repo_slug}", parser.graph_to_serializable(graph))
+
+        # Compute signature changes: compare old vs new for each function
+        new_sigs = ASTParser.snapshot_signatures(graph, list(old_sigs.keys())) if old_sigs else {}
+        signature_changes = {
+            nid: "changed" if old_sigs.get(nid) != new_sigs.get(nid) else "unchanged"
+            for nid in old_sigs
+        } if old_sigs else {}
 
         # 3.5. Detect Languages
         from pipeline.language_detector import detect_languages
@@ -114,11 +122,20 @@ class ReviewPRTool:
         if pr_data.get("description"):
             spec_quotes = vectorizer.search(pr_data["description"], n_results=3, collection="docs")
 
-        # 6. Impact Analysis (AST)
+        # 5.5. Diff-level function detection
+        logger.info("Step 5.5: Diff-Level Function Detection")
+        from pipeline.diff_parser import changed_functions as compute_changed_functions
+        changed_fns = compute_changed_functions(diff, graph)
+
+        # 6. Impact Analysis (AST) — scoped to actually-changed functions
         logger.info("Step 6: Impact Analysis")
         from pipeline.impact_analyzer import ImpactAnalyzer
         impact_analyzer = ImpactAnalyzer()
-        impact_findings = impact_analyzer.analyze(graph, changed_files, repo_path)
+        impact_findings = impact_analyzer.analyze(
+            graph, changed_files, repo_path,
+            changed_function_nodes=changed_fns if changed_fns else None,
+            signature_changes=signature_changes if signature_changes else None,
+        )
 
         # 7. Co-Change Analysis
         logger.info("Step 7: Co-Change Analysis")
@@ -144,7 +161,7 @@ class ReviewPRTool:
         filtered_comments = []
         if comments:
             for c in comments:
-                if any(cf in c.get("file_path", "") for cf in changed_files):
+                if file_in_changeset(c.get("file_path", ""), changed_files):
                     filtered_comments.append(c)
             if filtered_comments:
                 hist_summary = await hist_tool._summarize(filtered_comments, "Changed files in PR")
@@ -180,6 +197,8 @@ class ReviewPRTool:
             return self._build_payload(
                 pr_data=pr_data,
                 changed_files=changed_files,
+                changed_functions=changed_fns,
+                signature_changes=signature_changes,
                 languages=languages,
                 impact_findings=impact_findings,
                 cochange_findings=cochange_findings,
@@ -212,6 +231,8 @@ class ReviewPRTool:
         self,
         pr_data: dict,
         changed_files: list[str],
+        changed_functions: list[str],
+        signature_changes: dict[str, str],
         languages: dict[str, float],
         impact_findings: dict,
         cochange_findings: list[dict],
@@ -279,10 +300,18 @@ class ReviewPRTool:
             for c in filtered_comments[:20]
         ]
 
+        # Signature change summary for the agent
+        sig_summary = {}
+        for nid, status in signature_changes.items():
+            short_name = nid.split("::")[-1] if "::" in nid else nid
+            sig_summary[short_name] = status
+
         payload = {
             "status": "pipeline_complete",
             "pr_metadata": pr_data,
             "changed_files": changed_files,
+            "changed_functions": changed_functions,
+            "signature_changes": sig_summary,
             "languages": languages,
             "impact_summary": impact_summary,
             "cochange_summary": cochange_summary,

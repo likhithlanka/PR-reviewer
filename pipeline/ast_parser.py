@@ -255,10 +255,17 @@ class ASTParser:
         repo_path: Path,
         repo_slug: str,
         changed_files: Optional[list[str]] = None,
-    ) -> nx.DiGraph:
+        snapshot_old_sigs: bool = False,
+    ) -> Union[nx.DiGraph, tuple[nx.DiGraph, dict[str, dict]]]:
         """
         Build (or incrementally update) the code graph for a repo.
         If changed_files is provided, only re-parse those files.
+
+        When snapshot_old_sigs=True and changed_files is provided, returns
+        (graph, old_signatures) where old_signatures maps node_id →
+        {"parameters": [...], "return_type": "..."} for functions that
+        existed in the cached graph before re-parsing. This allows callers
+        to detect signature changes.
         """
         # Load existing graph
         cached = load_graph(repo_slug)
@@ -269,9 +276,21 @@ class ASTParser:
             graph = nx.DiGraph()
             logger.info("Building fresh graph for %s", repo_slug)
 
+        old_sigs: Optional[dict[str, dict]] = None
         files_to_parse: list[Path]
         if changed_files:
             files_to_parse = [repo_path / f for f in changed_files if (repo_path / f).exists()]
+
+            # Snapshot old signatures before removing stale nodes
+            if snapshot_old_sigs:
+                stale_nodes = []
+                for fpath in files_to_parse:
+                    stale_nodes.extend(
+                        n for n, d in graph.nodes(data=True)
+                        if d.get("file_path") == str(fpath)
+                    )
+                old_sigs = self.snapshot_signatures(graph, stale_nodes)
+
             # Remove stale nodes for changed files
             for fpath in files_to_parse:
                 stale = [n for n, d in graph.nodes(data=True) if d.get("file_path") == str(fpath)]
@@ -291,7 +310,26 @@ class ASTParser:
 
         save_graph(repo_slug, nx.node_link_data(graph))
         logger.info("Graph built: %d nodes, %d edges", len(graph.nodes), len(graph.edges))
+
+        if snapshot_old_sigs:
+            return graph, old_sigs or {}
         return graph
+
+    @staticmethod
+    def snapshot_signatures(graph: nx.DiGraph, node_ids: list[str]) -> dict[str, dict]:
+        """
+        Snapshot parameters + return_type for function nodes.
+        Returns {node_id: {"parameters": [...], "return_type": "..."}}.
+        """
+        result = {}
+        for nid in node_ids:
+            data = graph.nodes.get(nid, {})
+            if data.get("kind") == "function":
+                result[nid] = {
+                    "parameters": list(data.get("parameters", [])),
+                    "return_type": data.get("return_type"),
+                }
+        return result
 
     def _collect_files(self, repo_path: Path) -> list[Path]:
         exts = set(_LANG_MAP.keys())

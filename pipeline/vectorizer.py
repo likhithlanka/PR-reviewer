@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import config
+from pipeline.utils import file_in_changeset
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +72,7 @@ class Vectorizer:
                 continue
 
             fpath = Path(file_path_str)
-            if changed_files and not any(
-                file_path_str.endswith(cf) or cf in file_path_str
-                for cf in changed_files
-            ):
+            if changed_files and not file_in_changeset(file_path_str, changed_files):
                 continue  # Skip unchanged files in incremental mode
 
             if not fpath.exists():
