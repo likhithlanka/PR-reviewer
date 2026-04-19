@@ -7,8 +7,10 @@ Repos older than REPO_TTL_DAYS without access are garbage-collected.
 """
 
 import logging
+import os
 import shutil
 import time
+from urllib.parse import quote
 from pathlib import Path
 from typing import Optional
 
@@ -56,7 +58,18 @@ class RepoManager:
 
     def _default_clone_url(self, platform: str, workspace: str, slug: str) -> str:
         if platform == "bitbucket":
-            token = config.BITBUCKET_TOKEN
+            token = config.bitbucket.BITBUCKET_TOKEN
+            base = config.bitbucket.BITBUCKET_URL
+            if base:
+                # Data Center (self-hosted) — uses HTTP Basic Auth
+                host = base.replace("https://", "").replace("http://", "")
+                username = os.environ.get("BITBUCKET_USERNAME", "")
+                if token:
+                    # Use username:token@ format for Data Center
+                    user = quote(username or token, safe="")
+                    return f"https://{user}:{token}@{host}/scm/{workspace}/{slug}.git"
+                return f"https://{host}/scm/{workspace}/{slug}.git"
+            # Cloud — uses x-token-auth scheme
             if token:
                 return f"https://x-token-auth:{token}@bitbucket.org/{workspace}/{slug}.git"
             return f"https://bitbucket.org/{workspace}/{slug}.git"

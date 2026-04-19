@@ -6,7 +6,25 @@ Compatible with Claude Code, JAR, and any MCP-compatible client.
 """
 
 import asyncio
+import json
 import logging
+import os
+from pathlib import Path
+
+# ── Load env vars from Claude Code settings if not already set ─────────────
+# Claude Code may not inject all env vars from the "env" block in settings.json.
+# As a workaround, parse the settings file and inject missing vars at startup.
+_settings_path = Path.home() / ".claude" / "settings.json"
+if _settings_path.exists() and not os.environ.get("BITBUCKET_URL"):
+    try:
+        _cfg = json.loads(_settings_path.read_text())
+        _rf_env = _cfg.get("mcpServers", {}).get("reviewforge", {}).get("env", {})
+        for _k, _v in _rf_env.items():
+            if _k not in os.environ:
+                os.environ[_k] = _v
+    except Exception:
+        pass
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
@@ -20,6 +38,7 @@ from tools.review_history import ReviewHistoryTool
 from tools.pr_comments import PRCommentsTool
 from tools.run_analysis import RunAnalysisTool
 from tools.run_command import RunCommandTool
+from tools.post_comment import PostCommentTool
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("reviewforge")
@@ -37,6 +56,7 @@ _tools = {
     "get_pr_comments": PRCommentsTool(),
     "run_analysis": RunAnalysisTool(),
     "run_command": RunCommandTool(),
+    "post_pr_comment": PostCommentTool(),
 }
 
 

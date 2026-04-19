@@ -93,7 +93,10 @@ class ReviewHistoryTool:
     def _fetch_history(self, platform: str, workspace: str, slug: str) -> list[dict]:
         if platform == "bitbucket":
             from adapters.bitbucket import BitbucketAdapter
-            return BitbucketAdapter().get_review_history(workspace, slug)
+            result, error = BitbucketAdapter().get_review_history(workspace, slug)
+            if error:
+                logger.error("Failed to fetch review history: %s", error)
+            return result or []
         elif platform == "github":
             from adapters.github import GitHubAdapter
             return GitHubAdapter().get_review_history(workspace, slug)

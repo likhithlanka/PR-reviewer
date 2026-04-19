@@ -33,14 +33,18 @@ class PRCommentsTool:
         repo_slug: str = args["repo_slug"]
 
         comments = []
+        error: str | None = None
         if platform == "bitbucket":
             from adapters.bitbucket import BitbucketAdapter
-            comments = BitbucketAdapter().get_pr_comments(workspace, repo_slug, pr_id)
+            comments, error = BitbucketAdapter().get_pr_comments(workspace, repo_slug, pr_id)
         elif platform == "github":
             from adapters.github import GitHubAdapter
             comments = GitHubAdapter().get_pr_comments(workspace, repo_slug, pr_id)
         else:
             return f"Unsupported platform: {platform}"
+
+        if error:
+            return f"Failed to fetch comments for PR #{pr_id} from {platform}/{workspace}/{repo_slug}.\n\nError: {error}\n\nTroubleshooting:\n  1. Check BITBUCKET_TOKEN is set and valid.\n  2. If using Bitbucket Data Center, ensure BITBUCKET_URL is set.\n  3. For Data Center, workspace should be the project KEY (e.g. 'EXC')."
 
         if not comments:
             return "No comments found on this PR."
