@@ -12,7 +12,7 @@ For each function/class changed in a PR diff:
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import networkx as nx
 
@@ -102,7 +102,7 @@ class ImpactAnalyzer:
                     })
 
         # ── Cross-network check ────────────────────────────────────────────
-        network_dirs = self._find_network_dirs(changed_files)
+        network_dirs = self._find_network_dirs(changed_files, repo_path)
         for changed_file in changed_files:
             for net_dir, siblings in network_dirs.items():
                 if net_dir in changed_file:
@@ -130,37 +130,47 @@ class ImpactAnalyzer:
 
         return results
 
-    def _find_network_dirs(self, changed_files: list[str]) -> dict[str, list[str]]:
+    def _find_network_dirs(self, changed_files: list[str], repo_path: Optional[Path] = None) -> dict[str, list[str]]:
         """
         Detect sibling network directories (e.g. Network/Visa, Network/Mastercard).
-        Returns {dir → [all_siblings]}.
+        Returns {changed_net_dir → [all_sibling_dirs_on_disk]}.
+
+        Scans the filesystem so that siblings NOT in the PR diff are still found.
+        Falls back to PR-diff-only detection if repo_path is not provided.
         """
         network_pattern = re.compile(r"((?:Network|network|networks)/[^/]+)/")
-        dirs: dict[str, set[str]] = {}
+
+        # Find which network dirs are touched in this PR
+        touched: dict[str, str] = {}  # net_dir → parent
         for f in changed_files:
             m = network_pattern.search(f)
             if m:
                 net_dir = m.group(1)
                 parent = net_dir.rsplit("/", 1)[0] if "/" in net_dir else ""
-                if parent not in dirs:
-                    dirs[parent] = set()
-                dirs[parent].add(net_dir)
+                touched[net_dir] = parent
 
-        # Build result: each network dir → all siblings in same parent
+        if not touched:
+            return {}
+
         result: dict[str, list[str]] = {}
-        grouped: dict[str, set[str]] = {}
-        for f in changed_files:
-            m = network_pattern.search(f)
-            if m:
-                net_dir = m.group(1)
-                parent = net_dir.rsplit("/", 1)[0] if "/" in net_dir else ""
-                if parent not in grouped:
-                    grouped[parent] = set()
-                grouped[parent].add(net_dir)
 
-        for parent, siblings in grouped.items():
-            for net_dir in siblings:
-                result[net_dir] = list(siblings)
+        for net_dir, parent in touched.items():
+            if repo_path:
+                # Scan the actual parent directory on disk to find all siblings
+                parent_path = repo_path / parent if parent else repo_path
+                try:
+                    siblings = [
+                        (parent + "/" + d.name if parent else d.name)
+                        for d in parent_path.iterdir()
+                        if d.is_dir()
+                    ]
+                except OSError:
+                    siblings = list(touched.keys())
+            else:
+                siblings = list(touched.keys())
+
+            result[net_dir] = siblings
+
         return result
 
     def _check_imports(
@@ -180,12 +190,31 @@ class ImpactAnalyzer:
             for _, imported_mod, edge_data in graph.out_edges(node_id, data=True):
                 if edge_data.get("rel") != "imports":
                     continue
-                # Best-effort: check if the module maps to a local file
+                # Only check dotted imports that look local (not stdlib/third-party).
+                # Heuristic: skip single-segment imports (e.g. "os", "json") and
+                # known third-party prefixes; flag dotted names whose first segment
+                # doesn't correspond to any top-level directory in the repo.
+                parts = imported_mod.split(".")
+                if len(parts) < 2:
+                    continue  # single-segment → almost certainly stdlib/third-party
+                top_level = parts[0]
+                # If the top-level package directory doesn't exist in the repo, it's
+                # an external import — skip it.
+                if not (repo_path / top_level).exists() and not (repo_path / (top_level + ".py")).exists():
+                    continue
                 mod_as_path = repo_path / (imported_mod.replace(".", "/") + ".py")
                 mod_as_hs = repo_path / (imported_mod.replace(".", "/") + ".hs")
-                if "." in imported_mod and not mod_as_path.exists() and not mod_as_hs.exists():
-                    # Could be a third-party import — mark as info only
-                    pass  # We skip third-party; only flag clearly local missing
+                if not mod_as_path.exists() and not mod_as_hs.exists():
+                    issues.append({
+                        "changed_file": node_file,
+                        "import": imported_mod,
+                        "severity": "Major",
+                        "message": (
+                            f"`{node_file}` imports `{imported_mod}` which does not "
+                            f"resolve to a local module. File may be missing or the "
+                            f"import path is incorrect."
+                        ),
+                    })
         return issues
 
     def get_entity_impact(

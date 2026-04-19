@@ -200,7 +200,7 @@ class ReviewPRTool:
         try:
             resp = await client.messages.create(
                 model=config.LLM_MODEL,
-                max_tokens=2048,
+                max_tokens=8192,
                 system=review_prompt,
                 messages=[{"role": "user", "content": context_doc}]
             )

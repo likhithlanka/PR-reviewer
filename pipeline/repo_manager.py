@@ -83,12 +83,15 @@ class RepoManager:
 
     def _clone(self, url: str, path: Path, branch: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        git.Repo.clone_from(url, str(path), branch=branch, depth=None)
+        # Clone all branches so PR source branches are available for diffing
+        repo = git.Repo.clone_from(url, str(path), branch=branch, depth=None, no_single_branch=True)
+        repo.remotes.origin.fetch("+refs/heads/*:refs/remotes/origin/*")
 
     def _pull(self, path: Path, branch: str) -> None:
         repo = git.Repo(str(path))
         origin = repo.remotes.origin
-        origin.fetch()
+        # Fetch all remote refs so PR source branches are available for diffing
+        origin.fetch("+refs/heads/*:refs/remotes/origin/*")
         repo.git.checkout(branch)
         origin.pull(branch)
 

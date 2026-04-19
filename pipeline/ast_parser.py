@@ -93,7 +93,10 @@ class _PythonVisitor(py_ast.NodeVisitor):
         self.graph.add_edge(self.module_id, func_id, rel="contains")
         self.graph.add_edge(func_id, self.module_id, rel="defined_in")
 
-        # Record calls inside the function body
+        # Record calls inside the function body.
+        # Edges point to bare callee names for now; _resolve_call_edges() in
+        # ASTParser.build_graph() will upgrade them to qualified module::name IDs
+        # once all files in the repo have been parsed.
         self._scope.append(func_id)
         for child in py_ast.walk(node):
             if isinstance(child, py_ast.Call):
@@ -280,6 +283,12 @@ class ASTParser:
         for fpath in files_to_parse:
             self._parse_file(fpath, graph)
 
+        # Resolve bare callee names to qualified module::name IDs.
+        # During parsing, call edges may target a bare name (e.g. "validate")
+        # because the callee's definition node wasn't added to the graph yet.
+        # Now that all files are parsed, upgrade those edges to qualified IDs.
+        self._resolve_call_edges(graph)
+
         save_graph(repo_slug, nx.node_link_data(graph))
         logger.info("Graph built: %d nodes, %d edges", len(graph.nodes), len(graph.edges))
         return graph
@@ -310,6 +319,50 @@ class ASTParser:
             self._treesitter.parse(fpath, content, graph, language)
         else:
             self._regex.parse(fpath, content, graph)
+
+    def _resolve_call_edges(self, graph: nx.DiGraph) -> None:
+        """
+        Upgrade bare callee name nodes to qualified module::name IDs where unambiguous.
+
+        During parsing, a call to `foo()` creates an edge to the bare node "foo"
+        because the callee may not be defined yet. Now that the full graph exists,
+        we:
+          1. Build a mapping from bare name → list of qualified IDs that match.
+          2. For unambiguous matches (exactly one qualified node), rewire the edge.
+          3. For ambiguous or unresolvable names, leave the bare node as-is so we
+             don't introduce wrong connections.
+        """
+        # Index: bare name → [qualified_node_id, ...]
+        name_to_nodes: dict[str, list[str]] = {}
+        for node_id, data in graph.nodes(data=True):
+            if data.get("kind") in ("function", "class"):
+                name = data.get("name", "")
+                if name:
+                    name_to_nodes.setdefault(name, []).append(node_id)
+
+        # Find all bare (unqualified) call/called_by nodes — these have no "kind"
+        bare_nodes = [
+            n for n in list(graph.nodes)
+            if "::" not in n and graph.nodes[n].get("kind") is None
+        ]
+
+        for bare in bare_nodes:
+            candidates = name_to_nodes.get(bare, [])
+            if len(candidates) != 1:
+                # Ambiguous or unknown — keep the bare node to avoid false edges
+                continue
+            qualified = candidates[0]
+            if qualified == bare:
+                continue
+
+            # Rewire all edges that touch the bare node
+            for pred, _, data in list(graph.in_edges(bare, data=True)):
+                graph.add_edge(pred, qualified, **data)
+            for _, succ, data in list(graph.out_edges(bare, data=True)):
+                graph.add_edge(qualified, succ, **data)
+
+            graph.remove_node(bare)
+            logger.debug("Resolved bare call target '%s' → '%s'", bare, qualified)
 
     def parse_file(self, fpath: Path) -> nx.DiGraph:
         """Parse a single file and return a fresh graph (for testing)."""
