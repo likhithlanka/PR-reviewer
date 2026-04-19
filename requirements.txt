@@ -1,0 +1,45 @@
+# ── MCP Framework ──────────────────────────────────────────────────────────
+
+# ── LLM ───────────────────────────────────────────────────────────────────
+anthropic>=0.30.0
+openai>=1.30.0
+
+# ── Vector DB + Embeddings ─────────────────────────────────────────────────
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+
+# ── AST / Parsing ──────────────────────────────────────────────────────────
+tree-sitter>=0.22.0
+tree-sitter-python>=0.22.0
+tree-sitter-javascript>=0.22.0
+tree-sitter-typescript>=0.22.0
+
+# ── Graph ──────────────────────────────────────────────────────────────────
+networkx
+
+# ── Git ────────────────────────────────────────────────────────────────────
+gitpython>=3.1.43
+
+# ── HTTP / Document fetching ───────────────────────────────────────────────
+requests>=2.32.0
+beautifulsoup4>=4.12.0
+pdfplumber>=0.11.0
+lxml>=5.2.0
+
+# ── Platform adapters ──────────────────────────────────────────────────────
+atlassian-python-api>=3.41.0
+PyGithub>=2.3.0
+
+# ── Config ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Static analysers (optional — review works without them) ────────────────
+ruff>=0.4.0
+mypy>=1.10.0
+bandit>=1.7.0
+semgrep>=1.75.0
+
+# ── Dev / testing ──────────────────────────────────────────────────────────
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
+mcp>=1.0.0
