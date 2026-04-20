@@ -41,8 +41,20 @@ def _run(cmd: list[str], cwd: Path, timeout: int = 60) -> tuple[str, str, int]:
 
 class StaticAnalyzer:
 
-    def run_all(self, repo_path: Path, changed_files: list[str]) -> dict[str, list[dict]]:
-        """Run all available tools on changed files. Returns structured findings."""
+    def run_all(
+        self,
+        repo_path: Path,
+        changed_files: list[str],
+        changed_ranges: dict[str, list[tuple[int, int]]] | None = None,
+    ) -> dict[str, list[dict]]:
+        """
+        Run all available tools on changed files. Returns structured findings.
+
+        If changed_ranges is provided (from diff_parser.parse_changed_ranges),
+        findings are filtered to only include issues on lines that were actually
+        modified in the diff. This prevents surfacing pre-existing issues on
+        unchanged lines.
+        """
         findings: dict[str, list[dict]] = {}
 
         py_files = [f for f in changed_files if f.endswith(".py")]
@@ -63,7 +75,51 @@ class StaticAnalyzer:
         if _AVAILABLE.get("semgrep"):
             findings["semgrep"] = self.run_semgrep(repo_path, changed_files)
 
+        # Filter to changed lines only
+        if changed_ranges:
+            findings = self._filter_to_changed_lines(findings, changed_ranges)
+
         return findings
+
+    def _filter_to_changed_lines(
+        self,
+        findings: dict[str, list[dict]],
+        changed_ranges: dict[str, list[tuple[int, int]]],
+    ) -> dict[str, list[dict]]:
+        """Keep only findings whose file:line falls within a changed hunk."""
+        filtered: dict[str, list[dict]] = {}
+        for tool, items in findings.items():
+            kept = []
+            for item in items:
+                file_path = item.get("file", "")
+                line = item.get("line")
+                if line is None:
+                    kept.append(item)  # No line info → keep (can't filter)
+                    continue
+                try:
+                    line_num = int(line)
+                except (ValueError, TypeError):
+                    kept.append(item)
+                    continue
+                if self._line_in_changed_ranges(file_path, line_num, changed_ranges):
+                    kept.append(item)
+            filtered[tool] = kept
+        return filtered
+
+    @staticmethod
+    def _line_in_changed_ranges(
+        file_path: str,
+        line: int,
+        changed_ranges: dict[str, list[tuple[int, int]]],
+    ) -> bool:
+        """Check if a file:line is within any changed hunk."""
+        for diff_file, hunks in changed_ranges.items():
+            # Match by suffix (diff paths are relative, tool paths may be relative or absolute)
+            if file_path.endswith(diff_file) or diff_file.endswith(file_path) or file_path == diff_file:
+                for hunk_start, hunk_end in hunks:
+                    if hunk_start <= line <= hunk_end:
+                        return True
+        return False
 
     def run_one(self, tool: str, repo_path: Path, target: str) -> list[dict]:
         """Run a specific tool on a file or the full repo."""

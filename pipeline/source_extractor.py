@@ -34,9 +34,14 @@ def extract_changed_function_sources(
     changed_function_nodes: list[str],
     repo_path: Path,
     max_lines_per_function: int = 150,
+    changed_ranges: Optional[dict[str, list[tuple[int, int]]]] = None,
 ) -> list[dict[str, Any]]:
     """
     Read the full source of each changed function from disk.
+
+    If changed_ranges is provided, each source line is annotated with whether
+    it was actually modified in the diff. This prevents the reviewer from
+    flagging pre-existing issues on unchanged lines.
 
     Returns a list of dicts:
         {
@@ -46,6 +51,7 @@ def extract_changed_function_sources(
             "line_start": 42,
             "line_end": 78,
             "source": "def function_name(...):\n    ...",
+            "annotated_source": "  42 |   def function_name(...):\n» 43 | +     new_line = ...",
             "declaration_context": ["GAUGE_NAME = Gauge(...)", ...],
         }
     """
@@ -84,6 +90,11 @@ def extract_changed_function_sources(
         source_lines = all_lines[max(0, line_start - 1): line_end]
         source = "\n".join(source_lines)
 
+        # Annotate with changed-line markers
+        annotated = _annotate_source(
+            source_lines, line_start, file_path, changed_ranges,
+        )
+
         # Extract declaration context: scan the same file for constants,
         # gauge definitions, or config values that the function references
         decl_context = _extract_declarations(all_lines, source, file_path)
@@ -95,11 +106,50 @@ def extract_changed_function_sources(
             "line_start": line_start,
             "line_end": line_end,
             "source": source,
+            "annotated_source": annotated,
             "declaration_context": decl_context,
         })
 
     logger.info("Extracted source for %d changed functions", len(results))
     return results
+
+
+def _annotate_source(
+    source_lines: list[str],
+    line_start: int,
+    file_path: str,
+    changed_ranges: Optional[dict[str, list[tuple[int, int]]]] = None,
+) -> str:
+    """
+    Annotate each source line with a marker showing whether it was changed
+    in the diff. Changed lines get '»', unchanged lines get ' '.
+
+    Example output:
+        42 |   def process(self):
+      » 43 |       new_logic = True      ← CHANGED IN THIS PR
+        44 |       existing_code()
+    """
+    if not changed_ranges:
+        # No range info — just number the lines
+        annotated = []
+        for i, line in enumerate(source_lines):
+            lineno = line_start + i
+            annotated.append(f"  {lineno:4d} | {line}")
+        return "\n".join(annotated)
+
+    # Find which ranges apply to this file
+    file_hunks: list[tuple[int, int]] = []
+    for diff_file, hunks in changed_ranges.items():
+        if file_path.endswith(diff_file) or diff_file in file_path:
+            file_hunks.extend(hunks)
+
+    annotated = []
+    for i, line in enumerate(source_lines):
+        lineno = line_start + i
+        is_changed = any(hs <= lineno <= he for hs, he in file_hunks)
+        marker = "»" if is_changed else " "
+        annotated.append(f"{marker} {lineno:4d} | {line}")
+    return "\n".join(annotated)
 
 
 def _extract_declarations(
@@ -156,17 +206,19 @@ def format_function_sources_section(sources: list[dict]) -> str:
 
     parts = [
         "=== FULL SOURCE OF CHANGED FUNCTIONS ===",
-        "(Complete function bodies from the codebase — use these to verify claims, ",
-        "not the diff context which only shows a few surrounding lines.)\n",
+        "(Complete function bodies for verification. Lines marked with » were",
+        "changed in this PR. Lines WITHOUT » are unchanged context — do NOT",
+        "report issues on unchanged lines. Only review lines marked with ».)\n",
     ]
 
     for src in sources:
         rel_path = src["file_path"]
-        # Try to make path relative for readability
         parts.append(
             f"--- {src['name']} ({rel_path}:{src['line_start']}-{src['line_end']}) ---"
         )
-        parts.append(f"```\n{src['source']}\n```")
+        # Prefer annotated source if available
+        source_text = src.get("annotated_source") or src.get("source", "")
+        parts.append(f"```\n{source_text}\n```")
 
         if src.get("declaration_context"):
             parts.append("Referenced declarations in same file:")

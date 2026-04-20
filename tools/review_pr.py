@@ -124,7 +124,8 @@ class ReviewPRTool:
 
         # 5.5. Diff-level function detection
         logger.info("Step 5.5: Diff-Level Function Detection")
-        from pipeline.diff_parser import changed_functions as compute_changed_functions
+        from pipeline.diff_parser import changed_functions as compute_changed_functions, parse_changed_ranges
+        changed_ranges = parse_changed_ranges(diff)
         changed_fns = compute_changed_functions(diff, graph)
 
         # 5.6. Deterministic branch analysis
@@ -154,7 +155,7 @@ class ReviewPRTool:
         # 8. Static Analysis
         logger.info("Step 8: Static Analysis")
         from pipeline.static_analyzer import StaticAnalyzer
-        static_findings = StaticAnalyzer().run_all(repo_path, changed_files)
+        static_findings = StaticAnalyzer().run_all(repo_path, changed_files, changed_ranges=changed_ranges)
 
         # 9. Review History
         logger.info("Step 9: Review History")
@@ -182,7 +183,7 @@ class ReviewPRTool:
             format_function_sources_section,
         )
         fn_sources = extract_changed_function_sources(
-            graph, changed_fns, repo_path,
+            graph, changed_fns, repo_path, changed_ranges=changed_ranges,
         )
         fn_sources_section = format_function_sources_section(fn_sources)
 
