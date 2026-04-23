@@ -124,9 +124,17 @@ class ReviewPRTool:
 
         # 5.5. Diff-level function detection
         logger.info("Step 5.5: Diff-Level Function Detection")
-        from pipeline.diff_parser import changed_functions as compute_changed_functions, parse_changed_ranges
+        from pipeline.diff_parser import (
+            changed_functions as compute_changed_functions,
+            parse_changed_ranges,
+            parse_added_lines,
+        )
         changed_ranges = parse_changed_ranges(diff)
         changed_fns = compute_changed_functions(diff, graph)
+
+        # Cache added lines so post_pr_comment can snap to valid diff positions
+        added_lines = parse_added_lines(diff)
+        session.set(f"added_lines:{platform}:{workspace}:{repo_slug}:{pr_id}", added_lines)
 
         # 5.6. Deterministic branch analysis
         logger.info("Step 5.6: Branch Completeness Analysis")
@@ -235,6 +243,7 @@ class ReviewPRTool:
                 workspace=workspace,
                 repo_slug=repo_slug,
                 pr_id=pr_id,
+                added_lines=added_lines,
             )
 
         # 11. LLM Review
@@ -271,6 +280,7 @@ class ReviewPRTool:
         workspace: str,
         repo_slug: str,
         pr_id: int,
+        added_lines: dict[str, list[int]] | None = None,
     ) -> str:
         """Build the structured JSON payload for agent-driven review."""
         # Truncate impact findings
@@ -349,6 +359,7 @@ class ReviewPRTool:
             "status": "pipeline_complete",
             "pr_metadata": pr_data,
             "changed_files": changed_files,
+            "diff_anchors": added_lines or {},
             "changed_functions": changed_functions,
             "signature_changes": sig_summary,
             "changed_function_sources": fn_source_payload,
@@ -386,6 +397,15 @@ class ReviewPRTool:
                 "view_pr_comments": (
                     f"Call `get_pr_comments` with pr_id to see existing comments on the PR. "
                     f"Example: get_pr_comments(pr_id={pr_id}, workspace='{workspace}', repo_slug='{repo_slug}')"
+                ),
+                "posting_inline_comments": (
+                    "CRITICAL — When posting inline comments with `post_pr_comment`, you MUST use "
+                    "line numbers from the `diff_anchors` map in this payload. Those are the ONLY lines "
+                    "that exist in the diff and can be anchored. Do NOT invent or guess line numbers. "
+                    "If a finding is in file 'src/foo.py' at line 42, look up 'src/foo.py' in "
+                    "`diff_anchors` and pick the closest line number from that list. If the file is "
+                    "not in `diff_anchors` at all, post the comment without a `line` parameter "
+                    "(file-level comment only)."
                 ),
                 "anti_false_positive_rules": (
                     "CRITICAL — Follow these rules to avoid false positives:\n"

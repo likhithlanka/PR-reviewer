@@ -69,6 +69,8 @@ Brief assessment of the PR's quality and risk.
   *Why*: Explanation grounded in specs or the codebase call graph.
   *Fix*: Exact code suggestion or action.
 
+**Line number rule**: The `Line` in `[File.py:Line]` MUST be taken from the `diff_anchors` map provided in the pipeline payload. Only those lines exist in the diff and can be anchored in a comment. If the nearest relevant line is not in `diff_anchors` for that file, use the closest one from the list. If the file is not in `diff_anchors` at all, omit the line number entirely.
+
 ## Minor / Nits
 (Style, static analysis warnings, minor refactors)
 - ...

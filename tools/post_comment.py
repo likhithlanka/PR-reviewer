@@ -39,6 +39,12 @@ class PostCommentTool:
         line: Optional[int] = args.get("line")
         platform: str = args.get("platform", "bitbucket")
 
+        # Snap the requested line to the nearest real added line in the diff.
+        # This prevents misplaced anchors when the LLM produces a line number that
+        # is a context/deleted line rather than an actually-added (+) line.
+        if file_path and line is not None:
+            line = self._snap_line(file_path, line, platform, workspace, repo_slug, pr_id)
+
         if platform == "bitbucket":
             from adapters.bitbucket import BitbucketAdapter
             result, error = BitbucketAdapter().post_pr_comment(workspace, repo_slug, pr_id, text, file_path, line)
@@ -49,3 +55,36 @@ class PostCommentTool:
             return f"Failed to post comment on PR #{pr_id}: {error}"
 
         return f"Comment posted on PR #{pr_id} (comment ID: {result.get('id')})"
+
+    def _snap_line(
+        self,
+        file_path: str,
+        requested_line: int,
+        platform: str,
+        workspace: str,
+        repo_slug: str,
+        pr_id: int,
+    ) -> int:
+        """
+        Return the closest added-line number from the diff for this file.
+
+        Falls back to requested_line if no diff data is cached (e.g. the pipeline
+        wasn't run in this session), so the call degrades gracefully.
+        """
+        from pipeline.cache import session
+        from pipeline.diff_parser import snap_to_added_line
+
+        added_lines_map = session.get(f"added_lines:{platform}:{workspace}:{repo_slug}:{pr_id}")
+        if not added_lines_map:
+            return requested_line
+
+        snapped = snap_to_added_line(file_path, requested_line, added_lines_map)
+        if snapped is None:
+            return requested_line
+
+        if snapped != requested_line:
+            logger.info(
+                "Snapped inline comment line %d → %d for %s (nearest added line in diff)",
+                requested_line, snapped, file_path,
+            )
+        return snapped
