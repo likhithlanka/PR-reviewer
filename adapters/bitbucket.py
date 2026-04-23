@@ -84,13 +84,13 @@ class BitbucketAdapter:
             logger.error(detail)
             return None, detail
 
-    def _get_text(self, url: str, accept: str = "text/plain") -> tuple[Optional[str], Optional[str]]:
+    def _get_text(self, url: str, accept: str = "text/plain", timeout: int = 30) -> tuple[Optional[str], Optional[str]]:
         """Authenticated GET returning raw text. Returns (text, error)."""
         if not self._token:
             return None, "BITBUCKET_TOKEN is not set. Add it to your MCP server env config."
         try:
             headers = {**self._headers, "Accept": accept}
-            r = requests.get(url, headers=headers, timeout=30)
+            r = requests.get(url, headers=headers, timeout=timeout)
             r.raise_for_status()
             return r.text, None
         except requests.exceptions.HTTPError as exc:
@@ -259,7 +259,7 @@ class BitbucketAdapter:
             url = f"{CLOUD_API}/repositories/{workspace}/{repo_slug}/pullrequests/{pr_id}/diff"
         else:
             url = f"{self._base_url}/rest/api/1.0/projects/{workspace}/repos/{repo_slug}/pull-requests/{pr_id}/diff"
-        result, err = self._get_text(url, accept="text/plain")
+        result, err = self._get_text(url, accept="text/plain", timeout=config.DIFF_FETCH_TIMEOUT)
         return result or "", err
 
     def get_pr_comments(self, workspace: str, repo_slug: str, pr_id: int) -> tuple[list[dict], Optional[str]]:

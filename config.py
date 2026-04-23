@@ -96,3 +96,6 @@ CONTEXT_DOC_PREVIEW_CHARS: int = int(os.getenv("CONTEXT_DOC_PREVIEW_CHARS", "300
 PAYLOAD_MAX_IMPACT_ITEMS: int = int(os.getenv("PAYLOAD_MAX_IMPACT_ITEMS", "20"))
 PAYLOAD_MAX_COCHANGE_ITEMS: int = int(os.getenv("PAYLOAD_MAX_COCHANGE_ITEMS", "10"))
 PAYLOAD_MAX_STATIC_TOP: int = int(os.getenv("PAYLOAD_MAX_STATIC_TOP", "5"))
+
+# ── Large-diff handling ───────────────────────────────────────────────────
+DIFF_FETCH_TIMEOUT: int = int(os.getenv("DIFF_FETCH_TIMEOUT", "120"))
