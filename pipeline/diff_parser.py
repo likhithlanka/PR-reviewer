@@ -15,8 +15,10 @@ from pipeline.utils import file_in_changeset
 
 logger = logging.getLogger(__name__)
 
-# Match the new-file header in unified diff: +++ b/path/to/file.py
-_FILE_HEADER_RE = re.compile(r"^\+\+\+ b/(.+)$", re.M)
+# Match the new-file header in unified diff.
+# Standard format:  +++ b/path/to/file.py
+# Bitbucket DC:     +++ dst://path/to/file.py  (or +++ dst:path for new files)
+_FILE_HEADER_RE = re.compile(r"^\+\+\+\s+(?:b/|dst://?)(.+)$", re.M)
 
 # Match hunk headers: @@ -old_start[,old_count] +new_start[,new_count] @@
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
