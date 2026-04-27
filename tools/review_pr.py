@@ -222,6 +222,7 @@ class ReviewPRTool:
             pr_title=pr_data.get("title", "Unknown PR"),
             languages=languages,
             repo_path=repo_path,
+            diff_anchors=added_lines,
         )
 
         if skip_llm or not config.ANTHROPIC_API_KEY:

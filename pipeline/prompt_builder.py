@@ -18,6 +18,7 @@ def build_review_prompt(
     pr_title: str,
     languages: dict[str, float],
     repo_path: Optional[Path] = None,
+    diff_anchors: Optional[dict[str, list[int]]] = None,
 ) -> str:
     """
     Build the complete review prompt.
@@ -37,6 +38,18 @@ def build_review_prompt(
 
     if addenda_parts:
         prompt += "\n\n" + "\n".join(addenda_parts)
+
+    # Inject diff_anchors data so LLM can validate findings against it
+    if diff_anchors:
+        anchor_summary = "\n\n### VALID DIFF ANCHORS (MANDATORY CHECK)\n"
+        anchor_summary += "The following file:line combinations are the ONLY lines that exist in the diff. "
+        anchor_summary += "EVERY finding you report MUST reference a line from this list. "
+        anchor_summary += "If a file is not listed here, you cannot report anchored comments for it.\n\n"
+        for file_path, lines in sorted(diff_anchors.items())[:50]:  # Cap to avoid massive prompts
+            anchor_summary += f"- {file_path}: lines {lines}\n"
+        if len(diff_anchors) > 50:
+            anchor_summary += f"\n... ({len(diff_anchors) - 50} more files)\n"
+        prompt += anchor_summary
 
     # Output format (with pr_title substituted)
     prompt += REVIEW_OUTPUT_FORMAT.format(pr_title=pr_title)
