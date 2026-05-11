@@ -74,7 +74,7 @@ class ReviewPRTool:
                 f"Errors:\n{error_detail}\n\n"
                 f"Troubleshooting:\n"
                 f"  1. Check BITBUCKET_TOKEN is set and valid in your MCP server env config.\n"
-                f"  2. If using Bitbucket Data Center, ensure BITBUCKET_URL is set (e.g. https://bitbucket.juspay.net).\n"
+                f"  2. If using Bitbucket Data Center, ensure BITBUCKET_URL is set (e.g. https://bitbucket.yourcompany.net).\n"
                 f"     Without it, ReviewForge defaults to Cloud mode (api.bitbucket.org) which will reject Data Center tokens.\n"
                 f"  3. For Data Center, the workspace parameter should be the project KEY (e.g. 'EXC'), not the display name.\n"
                 f"  4. Verify the repo slug and PR ID exist and the token has access."
