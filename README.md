@@ -101,6 +101,4 @@ The agent will automatically call the `review_pr` tool to run the 11-step pipeli
 | `get_pr_comments` | Read current open PR threads. |
 | `run_command` | Sandboxed bash executor for automated fixes. |
 
-## Documentation
 
-Refer to the PRD (`ReviewForge_MCP_PRD_v2.docx`) for the full architectural breakdown.
