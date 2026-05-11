@@ -25,7 +25,7 @@ def _env(key: str, default: str = "") -> str:
 BITBUCKET_TOKEN: str = ""  # placeholder; use _env() for live reads
 BITBUCKET_WORKSPACE: str = ""
 
-# Set BITBUCKET_URL for self-hosted Data Center (e.g. https://bitbucket.juspay.net).
+# Set BITBUCKET_URL for self-hosted Data Center (e.g. https://bitbucket.yourcompany.net).
 # Leave empty for Bitbucket Cloud (api.bitbucket.org).
 BITBUCKET_URL: str = ""
 
